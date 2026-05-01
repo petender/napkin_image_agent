@@ -1,0 +1,77 @@
+{
+  "video_type": "Explanation of a Technical Concept",
+  "content_intent": "Explain how Azure Functions triggers work and their key types",
+  "visualizable": true,
+  "top_3_suggestions": [
+    {
+      "rank": 1,
+      "category": "Parts of a Whole",
+      "subcategory": "Key Ideas",
+      "confidence": "high",
+      "why_this_fits": "The content presents 4 distinct trigger types as parallel concepts with no procedural dependency.",
+      "content_cues": ["HTTP Trigger", "Timer Trigger", "Blob Trigger", "Queue Trigger"]
+    },
+    {
+      "rank": 2,
+      "category": "Mindmap",
+      "subcategory": "Horizontal Mindmaps",
+      "confidence": "medium",
+      "why_this_fits": "A mindmap groups the trigger types around the central Azure Functions concept.",
+      "content_cues": ["Azure Functions", "event-driven", "serverless", "trigger types"]
+    },
+    {
+      "rank": 3,
+      "category": "Parts of a Whole",
+      "subcategory": "Iceberg",
+      "confidence": "low",
+      "why_this_fits": "Iceberg can show visible trigger invocation above the line and hidden runtime context below.",
+      "content_cues": ["invocation", "cold start", "execution context", "scaling"]
+    }
+  ],
+  "diagram_generation_inputs": [
+    {
+      "rank": 1,
+      "category": "Parts of a Whole",
+      "subcategory": "Key Ideas",
+      "visual_query": "Show the 4 key trigger types for Azure Functions",
+      "content": [
+        "HTTP Trigger – invoke a function via HTTP request",
+        "Timer Trigger – run on a schedule using CRON expressions",
+        "Blob Trigger – react to new files in Azure Blob Storage",
+        "Queue Trigger – process messages from Azure Storage Queue"
+      ],
+      "context_notes": "Azure Functions serverless compute intro video. Audience: developers new to serverless."
+    },
+    {
+      "rank": 2,
+      "category": "Mindmap",
+      "subcategory": "Horizontal Mindmaps",
+      "visual_query": "Mindmap of Azure Functions trigger types and their event sources",
+      "content": [
+        "HTTP Trigger – invoke a function via HTTP request",
+        "Timer Trigger – run on a schedule using CRON expressions",
+        "Blob Trigger – react to new files in Azure Blob Storage",
+        "Queue Trigger – process messages from Azure Storage Queue"
+      ],
+      "context_notes": "Azure Functions serverless compute intro video. Audience: developers new to serverless."
+    },
+    {
+      "rank": 3,
+      "category": "Parts of a Whole",
+      "subcategory": "Iceberg",
+      "visual_query": "Iceberg showing visible trigger invocation vs hidden serverless runtime complexity",
+      "content": [
+        "HTTP Trigger – invoke a function via HTTP request",
+        "Timer Trigger – run on a schedule using CRON expressions",
+        "Blob Trigger – react to new files in Azure Blob Storage",
+        "Queue Trigger – process messages from Azure Storage Queue"
+      ],
+      "context_notes": "Azure Functions serverless compute intro video. Audience: developers new to serverless."
+    }
+  ],
+  "notes_for_human_review": [
+    "Rank 1 (Key Ideas) is the safest choice for an intro video — clear and readable.",
+    "Rank 3 (Iceberg) only works well if the narration explicitly contrasts visible vs hidden complexity.",
+    "Consider using Rank 2 (Mindmap) if the video segment is longer and needs more visual richness."
+  ]
+}
