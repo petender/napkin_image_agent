@@ -113,6 +113,30 @@ output/
 
 ---
 
+## Brand Options
+
+Both agents support four color brands. You are asked to choose one at the start of each session (interactive mode) or via the `--brand` flag (headless/scan mode).
+
+| # | Name | Description |
+|---|------|-------------|
+| 1 | MS Brand 14 | Orange-color focused; no borders, white icons |
+| 2 | My Brand 1 | Aqua-teal-color focused; dark borders, dark icons |
+| 3 | My Brand 2 | Aqua-teal-color focused; no border; white icons |
+| 4 | My Brand 3 | Aqua-teal-color focused; no border; dark icons |
+
+**Interactive mode (`napkin-chat`):** A brand menu is shown at startup. When regenerating, you are also asked whether you want to switch brands before the new visuals are generated.
+
+**Headless / script mode:**
+
+```
+python generate_visuals.py --headless --brand 1 --file rubric.json
+python generate_visuals.py --scan    --brand 3 --file document.md
+```
+
+If `--brand` is omitted, brand 2 (My Brand 1) is used as the default.
+
+---
+
 ## Notes
 
 - Napkin generates **diagrams and infographics only** — not photos or freeform illustrations.
