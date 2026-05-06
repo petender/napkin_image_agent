@@ -45,10 +45,33 @@ def _load_dotenv(path: str = ".env"):
 
 _load_dotenv()
 
-# ─── MS Learn brand ─────────────────────────────────────────────────────────
+# ─── Brand registry ──────────────────────────────────────────────────────────
 
-# Official Microsoft Learn style ID — use for all MS Learn / training content
-MSLEARN_STYLE_ID = "EGVK6C1P69GK2R9DC9GKJS9D6GRP4D1D70W32CHDCMWP6C9G60W3ACK66MWG"
+BRAND_MAP = {
+    "1": {
+        "name": "MS Brand 14",
+        "id":   "EGW36S1QC8T38D1DCMR38RSD6GRKCRHD70T34DHD69JKECHN74TPCRSMCCWG",
+        "description": "Orange-color focused; no borders, white icons",
+    },
+    "2": {
+        "name": "My Brand 1",
+        "id":   "EGVK6C1P69GK2R9DC9GKJS9D6GRP4D1D70W32CHDCMWP6C9G60W3ACK66MWG",
+        "description": "Aqua-teal-color focused; dark borders, dark icons",
+    },
+    "3": {
+        "name": "My Brand 2",
+        "id":   "EGSPCRSJCNGP6CHDCRW62RHD6GS62S9D70V64D1D64V3CE366XHPCCB1CGTG",
+        "description": "Aqua-teal-color focused; no border; white icons",
+    },
+    "4": {
+        "name": "My Brand 3",
+        "id":   "EHK64DHJ68W62SHD6NH3ED1D6GVKCE9DC4SK2R9D70T3CCB66SHKGD9M6WS0",
+        "description": "Aqua-teal-color focused; no border; dark icons",
+    },
+}
+
+# Default brand ID for non-interactive (headless/scan) modes
+DEFAULT_BRAND_ID = BRAND_MAP["2"]["id"]
 
 # ─── Style registry ───────────────────────────────────────────────────────────
 
@@ -299,6 +322,36 @@ def make_slug(text: str, suffix: str = "") -> str:
     return "".join(c for c in raw if c.isalnum() or c == "-").strip("-") or "visual"
 
 
+def choose_brand(current_id: str = None) -> str:
+    """Print the brand menu and return the chosen brand ID.
+
+    If *current_id* is supplied the current selection is highlighted so the
+    user can press Enter to keep it unchanged.
+    """
+    print("\n  Choose a color brand:")
+    current_num = None
+    for num, info in BRAND_MAP.items():
+        marker = " (current)" if info["id"] == current_id else ""
+        if info["id"] == current_id:
+            current_num = num
+        print(f"    [{num}] {info['name']} — {info['description']}{marker}")
+
+    if current_num:
+        prompt = f"  Enter brand number [1-{len(BRAND_MAP)}] or Enter to keep current: "
+    else:
+        prompt = f"  Enter brand number [1-{len(BRAND_MAP)}]: "
+
+    while True:
+        raw = input(prompt).strip()
+        if raw == "" and current_num:
+            return current_id
+        if raw in BRAND_MAP:
+            chosen = BRAND_MAP[raw]
+            print(f"  🎨 Brand selected: {chosen['name']} — {chosen['description']}")
+            return chosen["id"]
+        print(f"  Invalid — enter a number between 1 and {len(BRAND_MAP)}.")
+
+
 def print_suggestions(video_type: str, top3: list, confidence: int):
     conf_label = "high" if confidence >= 3 else ("medium" if confidence >= 1 else "low (default)")
     print(f"\n  📋 Intent detected : {video_type}")
@@ -414,14 +467,14 @@ def run(args):
     color_mode = args.color_mode
     width = args.width
     height = args.height
-    custom_style_id = MSLEARN_STYLE_ID if args.mslearn else None
-    if args.mslearn:
-        print("  🎓 Microsoft Learn branding active (use --no-mslearn to disable)")
 
     print()
     hr()
     print("  Napkin Visual Generator")
     hr()
+
+    # ── Brand selection (once per session, before the main loop)
+    custom_style_id = choose_brand()
 
     while True:
         # ── 1. Get text
@@ -530,6 +583,10 @@ def run(args):
                             top3 = INTENT_DIAGRAM_MAP[video_type]
                             print_suggestions(video_type, top3, confidence)
 
+                    change_brand = input("  Change the color brand? [y/N]: ").strip().lower()
+                    if change_brand == "y":
+                        custom_style_id = choose_brand(current_id=custom_style_id)
+
                     regen_slug = make_slug(text, "-regen")
                     try:
                         files = generate_cycle(
@@ -593,6 +650,12 @@ def _load_text_from_file(path: str):
         return raw.strip(), None, 0
 
 
+def _resolve_brand_id(args) -> str:
+    """Return the brand ID for non-interactive modes from the --brand arg."""
+    brand_num = getattr(args, "brand", "2") or "2"
+    return BRAND_MAP.get(brand_num, BRAND_MAP["2"])["id"]
+
+
 def run_headless(args):
     """Non-interactive mode: write JSON result to stdout, progress to stderr."""
     token = os.environ.get("NAPKIN_API_TOKEN", "").strip()
@@ -634,7 +697,7 @@ def run_headless(args):
         output_dir.mkdir(exist_ok=True)
         (output_dir / "selected").mkdir(exist_ok=True)
 
-        custom_style_id = MSLEARN_STYLE_ID if getattr(args, "mslearn", True) else None
+        custom_style_id = _resolve_brand_id(args)
         files = generate_cycle(
             text, video_type, top3, output_dir, slug,
             token, args.format, args.lang, args.sort,
@@ -750,7 +813,7 @@ def run_scan(args):
     output_dir.mkdir(exist_ok=True)
     (output_dir / "selected").mkdir(exist_ok=True)
 
-    custom_style_id = MSLEARN_STYLE_ID if getattr(args, "mslearn", True) else None
+    custom_style_id = _resolve_brand_id(args)
     results = []
 
     for block in blocks:
@@ -863,10 +926,15 @@ def main():
     )
     # Branding / graphical constraints
     parser.add_argument(
-        "--mslearn",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Apply the official Microsoft Learn style (default: on). Use --no-mslearn to disable.",
+        "--brand",
+        choices=["1", "2", "3", "4"],
+        default="2",
+        metavar="{1-4}",
+        help=(
+            "Brand ID for headless/scan modes (default: 2). "
+            "1=MS Brand 14 (orange), 2=My Brand 1 (aqua/dark borders), "
+            "3=My Brand 2 (aqua/white icons), 4=My Brand 3 (aqua/dark icons)."
+        ),
     )
     parser.add_argument(
         "--color-mode",
