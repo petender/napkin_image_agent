@@ -48,7 +48,7 @@ _load_dotenv()
 # ─── MS Learn brand ─────────────────────────────────────────────────────────
 
 # Official Microsoft Learn style ID — use for all MS Learn / training content
-MSLEARN_STYLE_ID = "EGW36S1QC8T38D1DCMR38RSD6GRKCRHD70T34DHD69JKECHN74TPCRSMCCWG"
+MSLEARN_STYLE_ID = "EGVK6C1P69GK2R9DC9GKJS9D6GRP4D1D70W32CHDCMWP6C9G60W3ACK66MWG"
 
 # ─── Style registry ───────────────────────────────────────────────────────────
 
