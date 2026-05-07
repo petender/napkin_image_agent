@@ -20,6 +20,7 @@ import argparse
 import http.client
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -271,6 +272,19 @@ def _http_get_with_auth(url: str, token: str) -> bytes:
     raise Exception(f"Download failed {res.status}: {body[:300].decode(errors='replace')}")
 
 
+def strip_svg_text(filepath: Path) -> Path:
+    """Remove all <text>…</text> elements from an SVG file.
+
+    Writes to a sibling file with '_notxt' appended to the stem so the
+    original is preserved.  Returns the path of the new file.
+    """
+    content = filepath.read_text(encoding="utf-8")
+    stripped = re.sub(r"<text\b.*?</text\s*>", "", content, flags=re.DOTALL)
+    dest = filepath.with_stem(filepath.stem + "_notxt")
+    dest.write_text(stripped, encoding="utf-8")
+    return dest
+
+
 def download_files(status_data: dict, output_dir: Path,
                    slug: str, token: str, top3: list) -> list:
     results = []
@@ -281,13 +295,17 @@ def download_files(status_data: dict, output_dir: Path,
         filepath = output_dir / f"{slug}_rank{rank}.{fmt}"
         filepath.write_bytes(_http_get_with_auth(url, token))
         cat, sub = top3[i] if i < len(top3) else ("Unknown", "Unknown")
-        results.append({
+        entry = {
             "rank": rank,
             "file": str(filepath),
             "format": fmt,
             "label": f"{cat} → {sub}",
             "query": QUERY_MAP.get((cat, sub), sub.lower()),
-        })
+        }
+        if fmt == "svg":
+            notxt_path = strip_svg_text(filepath)
+            entry["notxt_file"] = str(notxt_path)
+        results.append(entry)
     return results
 
 
@@ -387,6 +405,8 @@ def print_files(files: list):
     for f in files:
         print(f"  [{f['rank']}] {f['label']}")
         print(f"      {f['file']}")
+        if "notxt_file" in f:
+            print(f"      {f['notxt_file']}  (no text)")
 
 
 # ─── Build API payload ────────────────────────────────────────────────────────
@@ -571,6 +591,10 @@ def run(args):
                     print(f"\n  ✅ Saved selected visual:")
                     print(f"     {chosen['label']}")
                     print(f"     → {dest}")
+                    if "notxt_file" in chosen:
+                        notxt_dest = output_dir / "selected" / f"{slug}_selected_notxt.{chosen['format']}"
+                        Path(chosen["notxt_file"]).replace(notxt_dest)
+                        print(f"     → {notxt_dest}  (no text)")
                     break
 
                 elif pick == "r":
@@ -738,23 +762,52 @@ def run_headless(args):
 
 
 def run_select(args):
-    """Move a generated file to output/selected/."""
+    """Move a generated file (and its _notxt sibling) to output/selected/."""
     if not args.slug or not args.rank:
         print(json.dumps({"status": "error", "message": "--select requires --slug and --rank"}))
         sys.exit(1)
 
     output_dir = Path("output")
     matches = sorted(output_dir.glob(f"{args.slug}_rank{args.rank}.*"))
+    # Exclude _notxt files — we handle them separately
+    matches = [m for m in matches if "_notxt" not in m.stem]
     if not matches:
         print(json.dumps({"status": "error",
                           "message": f"File not found: output/{args.slug}_rank{args.rank}.*"}))
         sys.exit(1)
 
+    (output_dir / "selected").mkdir(exist_ok=True)
     src = matches[0]
     dest = output_dir / "selected" / f"{args.slug}_selected{src.suffix}"
-    (output_dir / "selected").mkdir(exist_ok=True)
     src.replace(dest)
-    print(json.dumps({"status": "ok", "selected": str(dest).replace("\\", "/")}))
+
+    result = {"status": "ok", "selected": str(dest).replace("\\", "/")}
+
+    # Also move the _notxt sibling if it exists
+    notxt_src = src.with_stem(src.stem + "_notxt")
+    if notxt_src.exists():
+        notxt_dest = output_dir / "selected" / f"{args.slug}_selected_notxt{src.suffix}"
+        notxt_src.replace(notxt_dest)
+        result["selected_notxt"] = str(notxt_dest).replace("\\", "/")
+
+    print(json.dumps(result))
+
+
+def run_strip_file(args):
+    """Create a text-stripped copy of an existing SVG file (_notxt suffix)."""
+    path = Path(args.strip_file)
+    if not path.is_file():
+        print(json.dumps({"status": "error", "message": f"File not found: {args.strip_file}"}))
+        sys.exit(1)
+    if path.suffix.lower() != ".svg":
+        print(json.dumps({"status": "error", "message": f"Not an SVG file: {args.strip_file}"}))
+        sys.exit(1)
+    dest = strip_svg_text(path)
+    print(json.dumps({
+        "status": "ok",
+        "original": str(path).replace("\\", "/"),
+        "stripped": str(dest).replace("\\", "/"),
+    }))
 
 
 # ─── Document scan mode ([NAPKIN-IMAGE] markers) ────────────────────────────
@@ -955,10 +1008,19 @@ def main():
         default=None,
         help="Output height in px for png (default: 1080).",
     )
+    parser.add_argument(
+        "--strip-file",
+        dest="strip_file",
+        metavar="PATH",
+        default=None,
+        help="Strip all <text> elements from an existing SVG file in-place and exit.",
+    )
 
     args = parser.parse_args()
 
-    if args.headless:
+    if args.strip_file:
+        run_strip_file(args)
+    elif args.headless:
         run_headless(args)
     elif args.select:
         run_select(args)
