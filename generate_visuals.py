@@ -74,6 +74,18 @@ BRAND_MAP = {
 # Default brand ID for non-interactive (headless/scan) modes
 DEFAULT_BRAND_ID = BRAND_MAP["2"]["id"]
 
+# ─── Localization languages ───────────────────────────────────────────────────
+LOCALIZATION_LANGUAGES = {
+    "es-ES": "Spanish",
+    "de-DE": "German",
+    "fr-FR": "French",
+    "pt-BR": "Portuguese (Brazil)",
+    "id-ID": "Indonesian",
+    "zh-CN": "Simplified Chinese",
+    "ko-KR": "Korean",
+    "ja-JP": "Japanese",
+}
+
 # ─── Style registry ───────────────────────────────────────────────────────────
 
 STYLE_MAP = {
@@ -272,19 +284,6 @@ def _http_get_with_auth(url: str, token: str) -> bytes:
     raise Exception(f"Download failed {res.status}: {body[:300].decode(errors='replace')}")
 
 
-def strip_svg_text(filepath: Path) -> Path:
-    """Remove all <text>…</text> elements from an SVG file.
-
-    Writes to a sibling file with '_notxt' appended to the stem so the
-    original is preserved.  Returns the path of the new file.
-    """
-    content = filepath.read_text(encoding="utf-8")
-    stripped = re.sub(r"<text\b.*?</text\s*>", "", content, flags=re.DOTALL)
-    dest = filepath.with_stem(filepath.stem + "_notxt")
-    dest.write_text(stripped, encoding="utf-8")
-    return dest
-
-
 def download_files(status_data: dict, output_dir: Path,
                    slug: str, token: str, top3: list) -> list:
     results = []
@@ -301,10 +300,8 @@ def download_files(status_data: dict, output_dir: Path,
             "format": fmt,
             "label": f"{cat} → {sub}",
             "query": QUERY_MAP.get((cat, sub), sub.lower()),
+            "top3_entry": (cat, sub),
         }
-        if fmt == "svg":
-            notxt_path = strip_svg_text(filepath)
-            entry["notxt_file"] = str(notxt_path)
         results.append(entry)
     return results
 
@@ -405,8 +402,6 @@ def print_files(files: list):
     for f in files:
         print(f"  [{f['rank']}] {f['label']}")
         print(f"      {f['file']}")
-        if "notxt_file" in f:
-            print(f"      {f['notxt_file']}  (no text)")
 
 
 # ─── Build API payload ────────────────────────────────────────────────────────
@@ -466,6 +461,52 @@ def generate_cycle(text: str, video_type: str, top3: list,
     print("  📥 Downloading files...")
     files = download_files(status_data, output_dir, slug, token, top3)
     return files
+
+
+def generate_localizations(text: str, video_type: str, chosen: dict,
+                            output_dir: Path, slug: str, token: str,
+                            fmt: str, custom_style_id: str,
+                            color_mode: str, width, height) -> list:
+    """Generate the chosen visual layout in all localization languages.
+
+    Uses the same query and style as the selected rank; one API call per language.
+    Results are saved directly into output/selected/.
+    """
+    cat, sub = chosen["top3_entry"]
+    single_top3 = [(cat, sub)]
+    results = []
+    for lang_code, lang_name in LOCALIZATION_LANGUAGES.items():
+        print(f"     [{lang_code}] {lang_name}...")
+        loc_slug = f"{slug}_{lang_code.replace('-', '').lower()}"
+        try:
+            files = generate_cycle(
+                text, video_type, single_top3, output_dir, loc_slug,
+                token, fmt, lang_code,
+                custom_style_id=custom_style_id,
+                color_mode=color_mode,
+                width=width,
+                height=height,
+            )
+            if files:
+                src = Path(files[0]["file"])
+                short_lang = lang_code.split("-")[0]
+                dest = output_dir / "selected" / f"{slug}_{short_lang}.{fmt}"
+                src.replace(dest)
+                results.append({
+                    "lang": lang_code,
+                    "name": lang_name,
+                    "file": str(dest).replace("\\", "/"),
+                })
+                print(f"        → {dest}")
+        except Exception as e:
+            print(f"     ❌ {lang_name}: {e}")
+            results.append({
+                "lang": lang_code,
+                "name": lang_name,
+                "status": "error",
+                "message": str(e),
+            })
+    return results
 
 
 # ─── Main interactive loop ────────────────────────────────────────────────────
@@ -586,15 +627,18 @@ def run(args):
                 if pick in ("1", "2", "3"):
                     idx = int(pick) - 1
                     chosen = files[idx]
-                    dest = output_dir / "selected" / f"{slug}_selected.{chosen['format']}"
+                    dest = output_dir / "selected" / f"{slug}_en.{chosen['format']}"
                     Path(chosen["file"]).replace(dest)
                     print(f"\n  ✅ Saved selected visual:")
                     print(f"     {chosen['label']}")
                     print(f"     → {dest}")
-                    if "notxt_file" in chosen:
-                        notxt_dest = output_dir / "selected" / f"{slug}_selected_notxt.{chosen['format']}"
-                        Path(chosen["notxt_file"]).replace(notxt_dest)
-                        print(f"     → {notxt_dest}  (no text)")
+                    print(f"\n  🌐 Generating localized versions...")
+                    generate_localizations(
+                        text, video_type, chosen,
+                        output_dir, slug, token,
+                        chosen["format"], custom_style_id,
+                        color_mode, width, height,
+                    )
                     break
 
                 elif pick == "r":
@@ -715,7 +759,10 @@ def run_headless(args):
 
         top3 = INTENT_DIAGRAM_MAP.get(video_type,
                INTENT_DIAGRAM_MAP["Explanation of a Technical Concept"])
-        slug = make_slug(text, "-regen" if args.sort == "variation" else "")
+        if getattr(args, "slug", None):
+            slug = args.slug
+        else:
+            slug = make_slug(text, "-regen" if args.sort == "variation" else "")
 
         output_dir = Path("output")
         output_dir.mkdir(exist_ok=True)
@@ -762,15 +809,13 @@ def run_headless(args):
 
 
 def run_select(args):
-    """Move a generated file (and its _notxt sibling) to output/selected/."""
+    """Move a generated file to output/selected/ and optionally localize."""
     if not args.slug or not args.rank:
         print(json.dumps({"status": "error", "message": "--select requires --slug and --rank"}))
         sys.exit(1)
 
     output_dir = Path("output")
     matches = sorted(output_dir.glob(f"{args.slug}_rank{args.rank}.*"))
-    # Exclude _notxt files — we handle them separately
-    matches = [m for m in matches if "_notxt" not in m.stem]
     if not matches:
         print(json.dumps({"status": "error",
                           "message": f"File not found: output/{args.slug}_rank{args.rank}.*"}))
@@ -778,36 +823,37 @@ def run_select(args):
 
     (output_dir / "selected").mkdir(exist_ok=True)
     src = matches[0]
-    dest = output_dir / "selected" / f"{args.slug}_selected{src.suffix}"
+    dest = output_dir / "selected" / f"{args.slug}_en{src.suffix}"
     src.replace(dest)
 
     result = {"status": "ok", "selected": str(dest).replace("\\", "/")}
 
-    # Also move the _notxt sibling if it exists
-    notxt_src = src.with_stem(src.stem + "_notxt")
-    if notxt_src.exists():
-        notxt_dest = output_dir / "selected" / f"{args.slug}_selected_notxt{src.suffix}"
-        notxt_src.replace(notxt_dest)
-        result["selected_notxt"] = str(notxt_dest).replace("\\", "/")
+    if getattr(args, "localize", False) and getattr(args, "text", None):
+        token = os.environ.get("NAPKIN_API_TOKEN", "").strip()
+        if not token:
+            result["localize_error"] = "NAPKIN_API_TOKEN not set"
+        else:
+            text = args.text.strip()
+            video_type, _ = classify_intent(text)
+            top3 = INTENT_DIAGRAM_MAP.get(video_type,
+                   INTENT_DIAGRAM_MAP["Explanation of a Technical Concept"])
+            rank_idx = (args.rank or 1) - 1
+            cat, sub = top3[rank_idx] if rank_idx < len(top3) else top3[0]
+            chosen = {"top3_entry": (cat, sub)}
+            custom_style_id = _resolve_brand_id(args)
+            fmt = src.suffix.lstrip(".")
+            print(f"  🌐 Generating localized versions...", file=sys.stderr)
+            loc_results = generate_localizations(
+                text, video_type, chosen,
+                output_dir, args.slug, token,
+                fmt, custom_style_id,
+                getattr(args, "color_mode", "light"),
+                getattr(args, "width", None),
+                getattr(args, "height", None),
+            )
+            result["localizations"] = loc_results
 
     print(json.dumps(result))
-
-
-def run_strip_file(args):
-    """Create a text-stripped copy of an existing SVG file (_notxt suffix)."""
-    path = Path(args.strip_file)
-    if not path.is_file():
-        print(json.dumps({"status": "error", "message": f"File not found: {args.strip_file}"}))
-        sys.exit(1)
-    if path.suffix.lower() != ".svg":
-        print(json.dumps({"status": "error", "message": f"Not an SVG file: {args.strip_file}"}))
-        sys.exit(1)
-    dest = strip_svg_text(path)
-    print(json.dumps({
-        "status": "ok",
-        "original": str(path).replace("\\", "/"),
-        "stripped": str(dest).replace("\\", "/"),
-    }))
 
 
 # ─── Document scan mode ([NAPKIN-IMAGE] markers) ────────────────────────────
@@ -1009,18 +1055,14 @@ def main():
         help="Output height in px for png (default: 1080).",
     )
     parser.add_argument(
-        "--strip-file",
-        dest="strip_file",
-        metavar="PATH",
-        default=None,
-        help="Strip all <text> elements from an existing SVG file in-place and exit.",
+        "--localize",
+        action="store_true",
+        help="Generate all localization language variants after --select (requires --text).",
     )
 
     args = parser.parse_args()
 
-    if args.strip_file:
-        run_strip_file(args)
-    elif args.headless:
+    if args.headless:
         run_headless(args)
     elif args.select:
         run_select(args)
